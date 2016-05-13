@@ -51,6 +51,13 @@ if send_readings.upcase == "Y"
         sim.send_message("STOP") if sim.host == "127.0.0.1"
       end
     end
+    puts "Interrupted by user"
+    # exit gracefully
+    exit 130
+  end
+else
+  trap "SIGINT" do
+    puts "Interrupted by user"
     # exit gracefully
     exit 130
   end
@@ -108,9 +115,10 @@ if simulation_mode.upcase == "P"
     # all readings will be adjusted by this offset so that the readings are sent at the
     # current time but in the same time intervals as they were originally received
     offset  = Time.now - Time.at(reading.field(:update_time).to_i(16))
+    adjusted_offet = false
 
-    puts "Current | Max/Sec - Sending".blue
-    print "\n#{per_second.to_s.rjust(7)} | #{max_per_second.to_s.rjust(7)}   "
+    puts "Time     | Current | Max/Sec - Sending".blue
+    print "#{Time.now.strftime("%H:%M:%S")} | #{per_second.to_s.rjust(7)} | #{max_per_second.to_s.rjust(7)}   "
 
     # while we have more readings to process
     while true
@@ -118,30 +126,50 @@ if simulation_mode.upcase == "P"
       # determine new update_time and time_of_fix based on time offet
       begin
         new_update_time  = (reading.field(:update_time).to_i(16) + offset).to_i.to_s(16)
-        reading.set_field_value(:update_time, new_update_time)
       rescue
         puts "Error in update_time: #{reading.field(:update_time)} => #{new_update_time}".red
       end
       
-      begin
-        new_time_of_fix = (reading.field(:time_of_fix).to_i(16) + offset).to_i.to_s(16)
-        reading.set_field_value(:time_of_fix, new_time_of_fix)
-      rescue
-        puts "Error in time_of_fix: #{reading.field(:time_of_fix)} => #{new_time_of_fix}".red
-      end
-
       # time to wait before sending the next reading
       sleep_time = new_update_time.hex.to_i - Time.now.to_i
-
+        
       # factor the sleep time by the multiplier
       # since the real time will further away from the adjusted time we need to
       # keep track of how much the time_multiplier has shifted the time and factory
       # that back in as well.
       unless time_multiplier == 1
-        sleep_time = sleep_time - compounded_sleep
+        sleep_time -= compounded_sleep
         compounded_sleep += sleep_time
-        sleep_time = sleep_time / time_multiplier
+        sleep_time = (sleep_time / time_multiplier).to_i
         compounded_sleep -= sleep_time
+        if compounded_sleep % time_multiplier == 0
+          unless adjusted_offet
+            offset += 1
+            adjusted_offet = true
+          end
+        else
+            adjusted_offet = false
+        end
+
+
+        # determine new update_time and time_of_fix based on time offet
+        begin
+          new_update_time  = (reading.field(:update_time).to_i(16) + offset - compounded_sleep).to_i.to_s(16)
+        rescue
+          puts "Error in update_time: #{reading.field(:update_time)} => #{new_update_time}".red
+        end
+        
+        sleep_time = new_update_time.hex.to_i - Time.now.to_i
+
+      end
+
+      reading.set_field_value(:update_time, new_update_time)
+
+      begin
+        new_time_of_fix = (reading.field(:time_of_fix).to_i(16) + offset).to_i.to_s(16)
+        reading.set_field_value(:time_of_fix, new_time_of_fix)
+      rescue
+        puts "Error in time_of_fix: #{reading.field(:time_of_fix)} => #{new_time_of_fix}".red
       end
       
       if sleep_time > 0
@@ -156,14 +184,14 @@ if simulation_mode.upcase == "P"
       end
       if current_second == Time.now.to_i
         per_second += 1
+        print '#'.green if per_second % 10 == 0
+        $stdout.flush
       else
         max_per_second = per_second if per_second > max_per_second
-        print "\n#{per_second.to_s.rjust(7)} | #{max_per_second.to_s.rjust(7)}   "
+        print "\n#{Time.at(new_update_time.hex.to_i).strftime("%H:%M:%S")} | #{per_second.to_s.rjust(7)} | #{max_per_second.to_s.rjust(7)}   "
         per_second = 1
         current_second = Time.now.to_i
       end
-      print '#'.green if per_second % 10 == 0
-      $stdout.flush
 
       logger.info reading.data
 
@@ -274,7 +302,8 @@ elsif simulation_mode.upcase == "S"
     per_second_int.times do
       # send here 
       reading = readings[reading_counter]
-      print "#"
+      print "#".green
+      $stdout.flush
 
       # set the reading times to the current time
       reading.set_field_value(:update_time, Time.now.to_i.to_s(16))
