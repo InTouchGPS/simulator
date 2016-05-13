@@ -1,0 +1,16 @@
+gateway:
+  count: 2
+  gateway1:
+    ip: 127.0.0.1
+    port: 1234
+  gateway2:
+    ip: 127.0.0.1
+    port: 2234
+
+database:
+  database: gw_calamp_development
+  username: root
+  host: localhost
+
+system:
+  debug: true
