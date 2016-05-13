@@ -65,24 +65,24 @@ listening on (ex. `log/server-1234.log` for port 1234).
 
 1. Edit `config.yml` to point to desired gateway(s) and database.  For example:
 
-```
-gateway:
-  count: 2
-  gateway1:
-    ip: 127.0.0.1
-    port: 1234
-  gateway2:
-    ip: 127.0.0.1
-    port: 2234
+   ```
+   gateway:
+     count: 2
+       gateway1:
+         ip: 127.0.0.1
+         port: 1234
+       gateway2:
+         ip: 127.0.0.1
+         port: 2234
 
-database:
-  database: gw_calamp_development
-  username: root
-  host: localhost
+   database:
+     database: gw_calamp_development
+     username: root
+     host: localhost
 
-system:
-  debug: true
-```
+   system:
+     debug: true
+  ```
 
 2. If using the gateway simulator, start up the server using `ruby server.rb`.  
 
