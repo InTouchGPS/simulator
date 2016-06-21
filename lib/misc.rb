@@ -14,6 +14,8 @@ def load_config
   @debug = config['system']['debug']
 
   @database = config['database']
+
+  @queue = config['queue']
 end
 
 def get_input(message, default)

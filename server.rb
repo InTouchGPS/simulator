@@ -3,6 +3,7 @@ require 'socket'
 require 'mysql2'
 require 'time'
 require 'logger'
+require 'stomp'
 
 require File.expand_path('../lib/reading', __FILE__)
 require File.expand_path('../lib/colors', __FILE__)
@@ -50,27 +51,27 @@ begin
   if log_to_db == "Y"
     begin
       # connect to the MySQL server
-      client = Mysql2::Client.new(@database)
+      db_client = Mysql2::Client.new(@database)
       # get server version string and display it
-      puts "Connected to MySQL server version: #{client.server_info[:version].blue}"
-      logger.info "Connected to MySQL server version: #{client.server_info[:version]}"
+      puts "Connected to MySQL server version: #{db_client.server_info[:version].blue}"
+      logger.info "Connected to MySQL server version: #{db_client.server_info[:version]}"
       
       # Give option to clear out prior messages from DB
-      results = client.query("SELECT COUNT(*) as message_count FROM messages")
+      results = db_client.query("SELECT COUNT(*) as message_count FROM messages")
       message_count = results.first['message_count'].to_i
       if message_count > 0
         ok_to_purge = ARGV.shift || get_input("OK to purge #{message_count.to_s.cyan} existing messages (Y or N)?", "Y")
         
         if ok_to_purge == "Y"
           puts "Clearing out messages table"
-          client.query("TRUNCATE messages")
+          db_client.query("TRUNCATE messages")
           logger.info "Purged message table"
         end
       else
         puts "No prior messages to purge."
       end
       
-      insert_statement = client.prepare("INSERT INTO messages (update_time, fix_time, received_at, msg_type, lat, lng, device_id, speed, direction, altitude, satellites, fix_status, event_code, event_index, hdop, comm_state, rssi, netwrk_id, inputs, unit_status, seq_num, msg_route, msg_id, app_msg_type, user_msg, app_msg, mobile_id, raw_data, accumulator_count, accumulator_0, accumulator_1, accumulator_2, accumulator_3, accumulator_4, accumulator_5, accumulator_6, accumulator_7, accumulator_8, accumulator_9, accumulator_10, accumulator_11, accumulator_12, accumulator_13, accumulator_14, accumulator_15, accumulator_16, accumulator_17, accumulator_18, accumulator_19, accumulator_20, accumulator_21, accumulator_22, accumulator_23, accumulator_24, accumulator_25, accumulator_26, accumulator_27, accumulator_28, accumulator_29, accumulator_30, accumulator_31 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      insert_statement = db_client.prepare("INSERT INTO messages (update_time, fix_time, received_at, msg_type, lat, lng, device_id, speed, direction, altitude, satellites, fix_status, event_code, event_index, hdop, comm_state, rssi, netwrk_id, inputs, unit_status, seq_num, msg_route, msg_id, app_msg_type, user_msg, app_msg, mobile_id, raw_data, accumulator_count, accumulator_0, accumulator_1, accumulator_2, accumulator_3, accumulator_4, accumulator_5, accumulator_6, accumulator_7, accumulator_8, accumulator_9, accumulator_10, accumulator_11, accumulator_12, accumulator_13, accumulator_14, accumulator_15, accumulator_16, accumulator_17, accumulator_18, accumulator_19, accumulator_20, accumulator_21, accumulator_22, accumulator_23, accumulator_24, accumulator_25, accumulator_26, accumulator_27, accumulator_28, accumulator_29, accumulator_30, accumulator_31 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 
     rescue Mysql2::Error => e
       puts "Database Error".red
@@ -79,6 +80,21 @@ begin
       logger.error e
     end
   end
+
+  #
+  # If send readings to queue
+  #
+  send_to_queue = ARGV.shift || get_input("Send readings to queue?", N)
+  if send_to_queue == 'Y'
+    begin
+      mq_client = Stomp::Client.new(@queue['login'], @queue['passcode'], @queue['host'], @queue['port'])
+    rescue Stomp::Error => e
+      puts "MQ Error".red
+      puts "Error message: #{e.message}"
+      logger.error e
+    end
+  end
+
   
   total_readings_received = 0
   start_time = Time.now
@@ -107,7 +123,7 @@ begin
     reading = Reading.new(text)
     current_second_readings += 1
     total_readings_received += 1
-    
+
     if log_to_db == "Y"
       begin
         # Save the reading to the messages table
@@ -186,15 +202,34 @@ begin
       logger.info "RECEIVED [#{sender[3]} / #{Time.now}]: #{text}"
       logger.info reading.to_h
     end
+
+    if send_to_queue == 'Y'
+      begin
+        mq_reading = { :account => reading.field_value(:mobile_id).to_i % 10,
+                      :id => reading.field_value(:mobile_id).to_i,
+                      :latitude => reading.field_value(:latitude).to_f,
+                      :longitude => reading.field_value(:longitude).to_f,
+                      :speed => reading.field_value(:speed).to_f,
+                      :heading => reading.field_value(:heading).to_f }
+        mq_client.publish(@queue['name'], mq_reading.to_json)
+      rescue Stomp::Error => e
+        puts "MQ Error".red
+        puts "Error message: #{e.message}"
+        logger.error e
+      end
+    end
+
   end
-  
+
+
   result = "#{'STOPPED:'.red} received #{total_readings_received} readings at a maximum of #{max_per_second}/sec.  #{'Server uptime:'.green} #{Time.now - start_time} seconds"
   puts "\r#{result}"
   logger.info result
   
 ensure
   # disconnect from database
-  client.close if client
+  db_client.close if db_client
+  mq_client.close if mq_client
 end
 
 

@@ -2,9 +2,11 @@ GEM
   remote: https://rubygems.org/
   specs:
     mysql2 (0.4.4)
+    stomp (1.4.0)
 
 PLATFORMS
   ruby
 
 DEPENDENCIES
   mysql2
+  stomp

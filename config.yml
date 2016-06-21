@@ -12,5 +12,13 @@ database:
   username: root
   host: localhost
 
+queue:
+  host: localhost
+  port: 61613
+  login: admin
+  passcode: admin
+  ssl: false
+  name: /queue/readings
+
 system:
   debug: true
